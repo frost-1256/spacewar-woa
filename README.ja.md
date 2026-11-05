@@ -11,6 +11,7 @@ Nothing Phone (1)（型番 **A063**、コードネーム **spacewar**、Snapdrag
 
 | 文書 | 内容 |
 |---|---|
+| [AGENTS.ja.md](AGENTS.ja.md) | AIエージェント向け：現状の正解、閉じた線、開いている問題、不変条件と安全ルール |
 | [STATUS.ja.md](STATUS.ja.md) | サブシステム別の動作状況と基準構成の限界 |
 | [docs/install.ja.md](docs/install.ja.md) | 前提条件、イメージ展開、署名、パッチ順序、安全な初回起動 |
 | [docs/known-issues.ja.md](docs/known-issues.ja.md) | フリーズの機構、ConfigFlags の罠、ADSP の開始順序と復旧 |

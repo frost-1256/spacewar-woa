@@ -11,6 +11,7 @@ Public documentation of Windows 11 ARM64 **22H2** on Nothing Phone (1), model **
 
 | Document | Purpose |
 |---|---|
+| [AGENTS.md](AGENTS.md) | For AI agents: ground truth, closed lines, open questions, invariants and safety rules |
 | [STATUS.md](STATUS.md) | Complete subsystem inventory and limits of the working baseline |
 | [docs/install.md](docs/install.md) | Prerequisites, image deployment, signing, patch order and safe first boot |
 | [docs/known-issues.md](docs/known-issues.md) | Freeze mechanism, persistent ConfigFlags trap, ADSP ordering and recovery |
