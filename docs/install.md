@@ -1,103 +1,161 @@
 English | [日本語](install.ja.md)
 
-# Install guide — Windows 11 ARM64 on Nothing Phone (1)
 
-> **Draft.** Assembled from the project's working notes. The overall flow is
-> proven on the author's device; exact command lines for your environment
-> (drive letters, image indexes) will differ. Read
-> [../STATUS.md](../STATUS.md) first so you know what you are getting.
+# Installation and safe servicing
 
-## 0. What you need
+Target: Nothing Phone (1) A063 / SM7325, Windows 11 ARM64 **22H2**, current fork configuration as of 2026-11-05. Read [status](../STATUS.md) and [known issues](known-issues.md) before changing the device. This guide records the proven installation model; it does not claim a newly tested clean install or a universal partitioning recipe.
 
-- Nothing Phone (1) (A063) with an unlocked bootloader, and a PC.
-- The UEFI image from the [Mu-Silicium fork](https://github.com/frost-1256/Mu-Silicium)
-  (its CI builds `Mu-spacewar.img`; it embeds the DSDT from the
-  [Silicium-ACPI fork](https://github.com/frost-1256/Silicium-ACPI)).
-- A Windows 11 ARM64 (22H2) install image.
-- The Qualcomm SM7325 driver pack (the "A52s pack"). Not distributed here —
-  obtain it yourself.
-- A code-signing test certificate of your own (self-signed is fine), trusted
-  by the phone's Windows install.
-- The touch driver from
-  [spacewar-ft3680](https://github.com/frost-1256/spacewar-ft3680).
+## 1. Prerequisites and recovery preparation
 
-## 1. Partitions and Windows install
+- An unlocked A063, a PC with fastboot, a reliable USB connection, and a way back to fastboot/recovery.
+- Backups of Android data, the original partition table and any partition images needed to restore your chosen layout. Repartitioning userdata is destructive; unlocking may also erase data.
+- `Mu-spacewar.img` from [the Mu-Silicium fork](https://github.com/frost-1256/Mu-Silicium), with board tables from [the Silicium-ACPI fork](https://github.com/frost-1256/Silicium-ACPI). DSDT v21 contains the proven Bluetooth Serial Bus revision change; use a fork build retaining that fix and the touch support.
+- A Windows 11 ARM64 22H2 image, Windows servicing tools (DISM and BCDBoot), and the Qualcomm SM7325/A52s driver pack obtained separately.
+- Python 3 for the patch applicator; signing tools and your own private test-signing identity for modified kernel binaries and catalogs.
+- The [FT3680 touch driver](https://github.com/frost-1256/spacewar-ft3680), built/installed according to its instructions.
 
-The layout used on the author's device, carved out of the userdata area:
+Keep pristine driver packages and the last known bootable firmware/package set outside the repository. Before experimenting, confirm gadget mode can expose the Windows volume and ESP while the phone's Windows is not running. Recovery must not depend on a working GPU, Wi-Fi or touch inside a frozen Windows session.
 
-| Partition | Size | Contents |
+## 2. Storage layout and image deployment
+
+The demonstrated layout uses space carved from userdata:
+
+| Partition | Size / format | Purpose |
 |---|---|---|
-| ESP | 512 MiB, FAT32 | UEFI-booted Windows boot files |
-| WIN | 64 GiB, NTFS | Windows itself |
+| ESP | 512 MiB / FAT32 | Windows UEFI boot files and BCD |
+| WIN | 64 GiB / NTFS | Windows system volume |
 
-Apply the Windows image to WIN with DISM and create the boot files on ESP
-with `bcdboot`, in the usual WoA fashion. (This install predates this
-document; treat the partitioning step as environment-specific.)
+The record does **not** preserve the original shrink/create commands, alignment decisions or a full before/after GPT. Do not execute a guessed DiskPart script or copy another phone's sector offsets. Determine the actual layout, backup and recovery procedure first. The sizes above describe a working layout, not minimum requirements or guaranteed free capacity.
 
-## 2. Boot the UEFI
+With only the intended phone partitions mounted for servicing, assign verified temporary letters: the examples use `W:` for WIN and `S:` for ESP; `I:` is example installation media. These are placeholders, not discovered drive letters. Inspect the image and select its ARM64 edition index before applying it:
 
-The UEFI is **not flashed**. Boot it from the PC each time:
+```bat
+dism /Get-WimInfo /WimFile:I:\sources\install.wim
+```
+
+Replace `<ARM64_INDEX>` with the chosen index; if the media supplies ESD or split images, adapt DISM's input options rather than renaming files:
+
+```bat
+dism /Apply-Image /ImageFile:I:\sources\install.wim /Index:<ARM64_INDEX> /ApplyDir:W:\
+bcdboot W:\Windows /s S: /f UEFI
+```
+
+These are standard servicing command templates, not a recovered transcript of the original installation. Verify the resulting BCD refers to the phone's Windows installation, then configure that store explicitly as below. Do not let a command intended for the phone change the servicing PC's BCD.
+
+## 3. Boot model
+
+From fastboot on each Windows boot:
 
 ```console
 fastboot boot Mu-spacewar.img
 ```
 
-Android stays in its slot untouched; if Windows wedges, rebooting returns
-you to Android/fastboot as usual.
+This loads UEFI into memory; it does not flash the phone's boot slots. Android remains on its existing slot under the demonstrated arrangement. A reboot can return to Android/fastboot, but does not undo partition changes or repair a damaged GPT. Standalone A/B dual boot is a future idea; no flashing procedure is supplied here. Linux bring-up steps such as DTBO erasure are not part of this Windows installation procedure.
 
-## 3. Test signing
+## 4. Test signing and debugger default
 
-Patched and home-built drivers require test signing:
+A changed SYS invalidates its embedded signature; changing either SYS or INF also invalidates package catalog hashes. Signing a SYS alone does not repair a stale catalog. Apply all byte/INF changes first, rebuild the affected catalogs using the appropriate WDK package tooling, then sign binaries/catalogs and verify the completed package before staging it. Do not reuse a mismatching original CAT.
 
-- Create your own test certificate, install it into the phone's
-  `CurrentUser\My` (for signing) and the machine's trusted stores.
-- Enable test signing in the BCD (`bcdedit /set testsigning on`).
-- Keep kernel debugging **off** by default (`bcdedit /debug off`); with it
-  on, boot waits for a KD host that is not there. Use `tools/phone/kd_on.bat`
-  only for a debugging session.
+Create your own test certificate and keep its private key on the signing system. The signing script uses `CurrentUser\My`; it does not require copying the private key to the phone. Import only the public certificate into the phone's Local Machine Trusted Root Certification Authorities and Trusted Publishers stores as required for that test identity. No certificate or key is distributed here.
 
-## 4. Driver pack and patches
+On the running phone, use an elevated prompt:
 
-1. Apply the patch specifications to your copy of the pack **before**
-   installing the affected drivers (see [../patches/](../patches/)):
-   - `qcwlan7325.sys` → variant `sarv2-allow`, plus the `fwVersion` INF edit
-     (`00228` → `00816`) — these two make Wi-Fi start.
-   - `qcdxkm7325.sys` → variant `dsc2` if you want to join the display
-     investigation; the GPU is not needed for a working touch/Wi-Fi/
-     Bluetooth system.
-2. Re-sign every patched driver (and any driver whose INF you edited) with
-   your test certificate.
-3. Install the pack with `pnputil /add-driver *.inf /subdirs /install` from
-   an administrator prompt, and the touch driver from its own repository.
+```bat
+bcdedit /set testsigning on
+bcdedit /debug off
+```
 
-Already-installed protected drivers are replaced **only** by writing the
-re-signed file into the DriverStore through the offline (gadget-mode) volume
-— never by overwriting a live DriverStore file from a running session.
+For offline setup, target the phone's store and inspect its loader entries first:
 
-## 5. GPU baseline: keep it off at boot
+```bat
+bcdedit /store S:\EFI\Microsoft\Boot\BCD /enum all
+bcdedit /store S:\EFI\Microsoft\Boot\BCD /set {PHONE_LOADER_GUID} testsigning on
+bcdedit /store S:\EFI\Microsoft\Boot\BCD /set {PHONE_LOADER_GUID} debug off
+```
 
-Out of the box, set the graphics device's `ConfigFlags` to 1 (disabled at
-boot):
+Substitute the actual Windows loader identifier from that store. Debug is **off by default**: the configured kernel-debug transport can wait for an absent debugger during initialization. `bootdebug` is a separate setting; changing it alone did not solve that wait. Use `kd_on.bat` only for an intentional debugger session and return to `kd_off.bat` afterward. Test signing must be compatible with the firmware's boot security configuration; the record does not supply a universal Secure Boot configuration recipe.
+
+## 5. Prepare drivers in order
+
+1. Preserve the pristine pack and check the two target hashes against [the patch specification](../patches/README.md). A different build requires a new audit; never bypass the applicator's refusal.
+2. From a pristine WLAN SYS, apply `sarv2-allow`; edit `qcwlan7325.inf` in UTF-16LE so `WlanFWVer` changes from `00228` to `00816`. Both changes are needed: the version gate and SAR initialization are separate failures.
+3. If investigating display, create `dsc2` directly from a pristine graphics SYS. It cumulatively includes `capw` and `dsc1`; do not run the applicator sequentially on an already patched file. The GPU is unnecessary for preserving the working touch/Wi-Fi/Bluetooth baseline.
+4. Finish all INF edits, regenerate affected catalogs and re-sign modified packages with the phone-trusted test identity. Keep a record of input hash, selected variant, final hash and matching firmware/ACPI build.
+5. Stage/install board providers and their extension INFs together with the intended pack configuration; do not assume copying an extension INF applies its settings. Install the separate touch package using its repository instructions.
+6. Establish the GPU-disabled and ADSP-disabled baseline **before permitting their first startup**. Avoid indiscriminately enabling every device in the pack; boot-time ADSP is known to crash.
+
+From the repository root, patch commands for your separately obtained files are:
+
+```console
+python3 patches/apply_patches.py qcwlan7325.sys sarv2-allow
+python3 patches/apply_patches.py qcdxkm7325.sys dsc2
+```
+
+For initial offline provisioning, DISM can stage a deliberately prepared driver directory into the phone image:
+
+```bat
+dism /Image:W:\ /Add-Driver /Driver:<PREPARED_PACK_DIRECTORY> /Recurse
+```
+
+For normal supported package installation on the running phone, the existing workflow uses an elevated prompt in the prepared directory:
+
+```bat
+pnputil /add-driver *.inf /subdirs /install
+```
+
+`/install` may start matching devices immediately. Use it only after the disabled baseline is established; select packages deliberately rather than applying it blindly to GPU/ADSP during first boot. Check device bindings and extension applicability afterward. The source record supplies no universal total ordering for every donor-pack provider, so this guide does not invent one; the concrete ADSP constraint is SSDD registration **before** ADSP QMI use.
+
+## 6. Set and verify the safe baseline
+
+Graphics instance used by this board configuration:
+
+```text
+ACPI\VEN_QCOM&DEV_0A36&SUBSYS_IDP07325&REV_0118\0
+```
+
+On running Windows, disable it and inspect the current control set:
+
+```bat
+pnputil /disable-device "ACPI\VEN_QCOM&DEV_0A36&SUBSYS_IDP07325&REV_0118\0"
+reg query "HKLM\SYSTEM\CurrentControlSet\Enum\ACPI\VEN_QCOM&DEV_0A36&SUBSYS_IDP07325&REV_0118\0" /v ConfigFlags
+```
+
+Expected baseline is `ConfigFlags REG_DWORD 0x1`, with the device disabled in Device Manager. The demonstrated offline key was:
 
 ```text
 HKLM\SYSTEM\ControlSet001\Enum\ACPI\VEN_QCOM&DEV_0A36&SUBSYS_IDP07325&REV_0118\0
   ConfigFlags (REG_DWORD) = 1
 ```
 
-Enable it only manually, in a quiet window at the sign-in screen, for
-display experiments (`tools/phone/gpu_now.bat`), and disable it again right
-afterwards. **After every enable, confirm `ConfigFlags` is 1 before the next
-reboot** — an interrupted enable leaves it at 0 and the next boot will try to
-start the GPU during boot, which can freeze. See
-[../STATUS.md](../STATUS.md) for the defect behind this.
+When editing offline, load the phone SYSTEM hive, inspect `Select\Current`/`Default` and target the control set used for its next normal boot; do not assume another installation uses ControlSet001. The full [offline recovery example](known-issues.md) includes backup, unload and readback. Keep ADSP boot-disabled too; identify its actual instance under `ACPI\QCOM0A1B` or the matching extended ID rather than guessing its instance suffix.
 
-## 6. First boot checklist
+GPU tests are manual, preferably during a quiet sign-in-screen window, brief, and followed immediately by disable. `gpu_now.bat` only enables and logs for five minutes; it has no cleanup. `pnputil /enable-device` can persistently set ConfigFlags=0. **After every enable, query again before reboot; if a crash prevented disable, repair offline before another Windows boot.**
 
-- Boots to the logon screen; sign in works (a PIN is recommended — it also
-  makes the boot stop at the sign-in screen, which is the quiet window used
-  for GPU tests).
-- Touch works, including after a `pnputil /scan-devices` (the driver
-  restores its own pin mux).
-- Wi-Fi lists networks and connects at normal speed; Bluetooth pairs and
-  plays audio.
-- Device Manager shows the graphics device disabled.
+## 7. First-boot acceptance checklist
+
+- Reaches logon and permits sign-in with kernel debugging off; a PIN can keep a deliberate sign-in window available for later tests.
+- GPU is disabled and ConfigFlags reads 1; ADSP remains disabled for boot.
+- Touch handles tap, release and long press, including after device re-scan (`pnputil /scan-devices`).
+- Wi-Fi discovers networks and connects at normal speed; Bluetooth discovers, pairs and delivers headset audio.
+- Storage, buttons and charging work; a missing battery percentage is still expected.
+- A gadget-mode recovery pass can inspect the phone's BCD and SYSTEM hive without booting its Windows.
+
+Record the OS version, firmware/DSDT identity, installed package versions and selected patches before display experimentation. No successful checklist item should be interpreted as a successful DSC display test.
+
+## 8. Replacement and troubleshooting
+
+**DriverStore replacement rule:** never directly overwrite a protected driver file in the running phone's DriverStore, even after disabling its device. A live replacement previously lost the file and required offline restoration. For the project's direct replacement workflow, shut down phone Windows, expose the volume in gadget mode, back up the relevant installed package, copy the correctly re-signed matching files offline, verify hashes and signatures, unmount cleanly, then boot. Use normal package servicing when installing a new package; do not mix SYS/INF/CAT from different revisions or edit all similarly named DriverStore folders by guesswork.
+
+| Symptom | Check / response |
+|---|---|
+| Boot waits when no debugger is attached | Inspect the phone loader's `debug` setting; keep it off for normal boots |
+| Freeze after a previous GPU enable | Before retrying Windows, inspect ConfigFlags offline; restore 1 if cleanup was interrupted |
+| Freeze with GPU already disabled | 0x101 also occurs during heavy early boot; preserve evidence, verify flags and avoid repeated automatic enable loops |
+| New package refuses to load | Check original hash/variant, SYS signature, regenerated CAT, INF encoding, phone trust stores and test-signing BCD entry |
+| WLAN refuses start | Check both fwVersion `00816` and SAR v2 patch, plus actual extension/firmware binding |
+| Bluetooth Code 10 | Confirm Serial Bus RevisionID correction retained in the embedded DSDT; inspect bytes rather than relying on iasl macro spelling |
+| Touch breaks after scan | Confirm integrated GPIO52–55 self-restore driver; do not add raw runtime power votes |
+| ADSP boot crashes with 0x0A | Return ADSP to boot-disabled; allow SSDD to complete before a later runtime test |
+| Display is structured noise | This is the known unresolved dsc2 behavior; do not replace already audited constants at random |
+
+If boot freezes, recover to gadget mode/fastboot, preserve available reports and check both GPU and ADSP startup state. A freeze-type watchdog reset may produce no new dump; inspect file timestamps so an older 0x0A dump is not mistaken for the newest failure. Detailed mechanisms and recovery limits are in [known issues](known-issues.md).
