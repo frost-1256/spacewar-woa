@@ -1,3 +1,5 @@
+English | [日本語](install.ja.md)
+
 # Install guide — Windows 11 ARM64 on Nothing Phone (1)
 
 > **Draft.** Assembled from the project's working notes. The overall flow is

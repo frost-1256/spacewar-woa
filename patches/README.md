@@ -1,3 +1,5 @@
+English | [日本語](README.ja.md)
+
 # Driver patches for spacewar
 
 This directory contains **patch specifications only** — file offsets and

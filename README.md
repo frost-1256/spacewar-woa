@@ -1,3 +1,5 @@
+English | [日本語](README.ja.md)
+
 # Windows 11 on Nothing Phone (1) — spacewar
 
 Notes, an install guide, binary patch specifications, and small tools from an

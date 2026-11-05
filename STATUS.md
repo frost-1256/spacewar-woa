@@ -1,3 +1,5 @@
+English | [日本語](STATUS.ja.md)
+
 # Device status — Nothing Phone (1) / spacewar, Windows 11 22H2
 
 Last updated 2026-11-05.

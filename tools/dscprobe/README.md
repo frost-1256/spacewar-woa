@@ -1,3 +1,5 @@
+English | [日本語](README.ja.md)
+
 # DscProbe
 
 A one-shot, **read-only** kernel probe for Windows 11 ARM64, used to inspect
