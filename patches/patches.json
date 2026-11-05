@@ -1,0 +1,143 @@
+{
+  "format": 1,
+  "notes": "Patch specifications only. No driver binaries are distributed with this repository. Each entry identifies its target by SHA-256; the apply script refuses any other file. After patching, the driver must be re-signed with your own test certificate.",
+  "targets": [
+    {
+      "file": "qcdxkm7325.sys",
+      "source": "Qualcomm graphics driver pack for SM7325 (A52s pack), obtain it yourself",
+      "pristine_sha256": "fd3af19c0cb1792ac6727970e1335432fb5d41f72f9240375a95578a92685b8f",
+      "variants": [
+        {
+          "name": "capw",
+          "description": "Arming set: makes fatal traps non-fatal / bounded so the graphics driver can start on spacewar, plus the DSC capability width fix.",
+          "cumulative": [],
+          "sites": [
+            {
+              "name": "flv-nonfatal",
+              "purpose": "FLV check failure made non-fatal (mov w23,#0 -> mov w23,#1)",
+              "file_offset": "0x25c54",
+              "rva": "0x27654",
+              "length": 4,
+              "orig": "17008052",
+              "new": "37008052"
+            },
+            {
+              "name": "dsc-trap-1",
+              "purpose": "DSC trap (brk) replaced with success value (mov w9,#1)",
+              "file_offset": "0xa114c",
+              "rva": "0xa2b4c",
+              "length": 4,
+              "orig": "80003ed4",
+              "new": "29008052"
+            },
+            {
+              "name": "dsc-trap-2",
+              "purpose": "DSC trap (brk) replaced with success value (mov w8,#1)",
+              "file_offset": "0xa1520",
+              "rva": "0xa2f20",
+              "length": 4,
+              "orig": "80003ed4",
+              "new": "28008052"
+            },
+            {
+              "name": "caps-dsc-max-width",
+              "purpose": "DSC capability sub-struct +0x18: max width 0 -> 2048 (data patch in .rdata caps table; without it a 1080-wide DSC mode is rejected)",
+              "file_offset": "0x1c9bd8",
+              "rva": "0x1cbbd8",
+              "length": 4,
+              "orig": "00000000",
+              "new": "00080000"
+            },
+            {
+              "name": "perf-vote",
+              "purpose": "Performance vote value forced (sub w9,w8,#1 -> mov w9,#2)",
+              "file_offset": "0x293738",
+              "rva": "0x35e338",
+              "length": 4,
+              "orig": "09050051",
+              "new": "49008052"
+            },
+            {
+              "name": "fw-init-poll-bound",
+              "purpose": "Firmware-init poll bound raised (100000 -> 1000000)",
+              "file_offset": "0x2938ec",
+              "rva": "0x35e4ec",
+              "length": 4,
+              "orig": "a0860100",
+              "new": "40420f00"
+            },
+            {
+              "name": "hfi-ack-timeout",
+              "purpose": "HFI ack timeout path adjusted",
+              "file_offset": "0x295ba0",
+              "rva": "0x3607a0",
+              "length": 4,
+              "orig": "806967ff",
+              "new": "001f0afa"
+            }
+          ]
+        },
+        {
+          "name": "dsc1",
+          "description": "capw + DSC command-mode record hand-off fix: the mode-set code copied the DSC record from an always-zero offset (S+0xC8); copy from the real record at S+0x124 instead.",
+          "cumulative": [
+            "capw"
+          ],
+          "sites": [
+            {
+              "name": "dsc-record-source",
+              "purpose": "add x2, x20, #0xc8 -> add x2, x20, #0x124",
+              "file_offset": "0x123c50",
+              "rva": "0x125650",
+              "length": 4,
+              "orig": "82220391",
+              "new": "82920491"
+            }
+          ]
+        },
+        {
+          "name": "dsc2",
+          "description": "dsc1 + program the DSC COMPRESSION_MODE_CTRL2 register with the slice width (540), which the driver otherwise left at 0 while the vendor stack writes 540. (Tested: not the cause of the remaining picture corruption; kept as a correctness fix matching the vendor value.)",
+          "cumulative": [
+            "capw",
+            "dsc1"
+          ],
+          "sites": [
+            {
+              "name": "ctrl2-slice-width",
+              "purpose": "CTRL2 value computation replaced: mov w14,#540; nop; store adjusted so COMPRESSION_MODE_CTRL2 receives 540",
+              "file_offset": "0x125190",
+              "rva": "0x126b90",
+              "length": 14,
+              "orig": "a9010b8b2a5142911fad02b94ca9",
+              "new": "8e4380521f2003d50ead02b92ca9"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "file": "qcwlan7325.sys",
+      "source": "Qualcomm WLAN driver pack for SM7325 (A52s pack), obtain it yourself",
+      "pristine_sha256": "09dd99c2ec0bac3f544ce8a468c66f92815e4c2d0369c7c3e25a85caa9d87f99",
+      "variants": [
+        {
+          "name": "sarv2-allow",
+          "description": "Nothing's stock firmware (bdwlan.elf) advertises SAR v2, and SarInit failed SAR initialisation with 0xC0000001 on that path. Make the SAR v2 branch of SarInit return success. One instruction.",
+          "cumulative": [],
+          "sites": [
+            {
+              "name": "sarinit-v2-success",
+              "purpose": "orr w19, wzr, #0xc0000001 -> mov w19, wzr (SarInit v2 branch returns 0)",
+              "file_offset": "0x12c4e8",
+              "rva": "0x12d0e8",
+              "length": 4,
+              "orig": "f30b0232",
+              "new": "f3031f2a"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
