@@ -3,7 +3,7 @@
 
 # 既知の問題、クラッシュの仕組み、復旧
 
-**2026-11-05 時点**の spacewar / Windows 11 22H2 基準構成を対象にする。プラットフォームの **0x101** フリーズと ADSP の **0x0A** 開始順クラッシュは別の障害。ノイズ表示、ドライバ開始失敗、システム無応答も別の観測として、何が起きたかを記録する。
+**2026-11-07 時点**の spacewar / Windows 11 22H2 基準構成を対象にする。プラットフォームの **0x101** フリーズと ADSP の **0x0A** 開始順クラッシュは別の障害。ノイズ表示、ドライバ開始失敗、システム無応答も別の観測として、何が起きたかを記録する。
 
 ## 1. BugCheck 0x101：プロセッサ間の相互ランデブー
 
@@ -73,11 +73,27 @@ ADSP のブート開始も有効にした場合は、実際に列挙された AD
 
 パックには `qcadsp7325.mbn` があり、Audio 拡張が自身の DriverStore へ導入して `ADSP\ImagePath` を設定する。本当にイメージがなければ検査付きのローダー失敗経路となり、この未初期化 QMI ミューテックスとは別。Wi-Fi 用 WPSS が動いても ADSP 全経路の準備完了は示せない。ADSP は audio／sensor の保護ドメインと追加の service-registry／QMI 活動を持ち、調べた WPSS 構成の保護ドメインは0。元のクラッシュの上位呼び出し元全体は復元できていないので、その差は根拠のある説明であって完全な復元スタックではない。
 
+**2026-11-07 の PROVEN：同じ競合は WPSS でも起き、ACPI の依存関係で解消する。** RPEN／GLNK／SSDD の鎖が揃った新規インストールで、ブートがときどき 0x0A（Arg1=0、Arg2=2）になり、**同じ qcsubsys の呼び出し位置 0x4B214** で image+0x76568 を待っていた。専用ダンプ（§4）では、WDF ワークアイテムから WPSS（QCOM0AE2）の `INITIALIZE_QMI_SERVICES` 状態ハンドラを通るスタックだった。DSDT の WPSS には SSDD への `_DEP` が無く、SSDD がミューテックスを登録・初期化する前に WPSS が QMI 初期化へ進みえた。`Device (WPSS)` に `Name (_DEP, Package (One) { \_SB.SSDD })` を加えると、繰り返しブートでクラッシュが消え、Wi-Fi・タッチ・Bluetooth も動いた。RPEN ドライバ（`qcrpen`、QCOM06E1）が無ければこのクラッシュは出ないが、GLNK（`_DEP` は IPCC と RPEN）が列挙されず、SSDD も現れず、Wi-Fi アダプタは出ない。GLNK の `_DEP` から RPEN を外すと SSDD は開始したが、アダプタは出なかった（代替策としては **EXCLUDED**）。
+
+**OPEN：** SSDD への同じ `_DEP` で、ADSP をブート中に安全に開始できるか。検証するまで ADSP はブート無効を保つ。
+
 実行時 ADSP 開始は、バッテリー、内蔵音声、センサーの動作を示さない。PMIC／電池チェーンは ADSP なしのブートで形成され、全デバイスが開始しても `Win32_Battery` は空のまま。これらは実行時停止・再開始を拒否した。ブート初期から正しい順序で ADSP が存在すれば変わるかは未検証。[サブシステム詳細](subsystems.ja.md)を参照。
 
 ## 4. ダンプと証拠の保存
 
 watchdog や強いフリーズでは通常の bugcheck dump なしで Android に戻ることがあり、その後のダンプ書き出し用ブートも凍結しうる。v3.8 採取セッションと後の書き出し試行では新しいダンプが残らず、以前の ADSP 0x0A ダンプが残った。クラッシュコードを結びつける前に、必ず時刻と実セッションを照合する。
+
+**起動初期のクラッシュと専用ダンプファイル（2026-11-07、PROVEN）。** ページファイルが使えるようになる前の起動初期の bugcheck は、既定の設定ではダンプが残らず、カーネルデバッガも間に合わないことがある。オフラインの SYSTEM ハイブに専用ダンプファイルを設定すると、そうしたクラッシュを捕獲できた：
+
+```text
+HKLM\SYSTEM\ControlSet001\Control\CrashControl
+  DedicatedDumpFile    (REG_SZ)    = C:\DedicatedDump.sys
+  DumpFileSize         (REG_DWORD) = 1024          ; MB
+  CrashDumpEnabled     (REG_DWORD) = 2             ; カーネルダンプ
+  AlwaysKeepMemoryDump (REG_DWORD) = 1
+```
+
+クラッシュ後、ガジェットモードからファイルをオフラインで読む。先頭は `PAGEDU64` で、そのままデバッガで開ける。所有者が SYSTEM なので、SYSTEM 権限のタスクでコピーする。
 
 次の採取で上書きする前に、残ったプローブ結果とログを保存する。DscProbe は段階的に flush するが、in-progress は途中の結果で、完成ファイルも前回ブートのものかもしれない。最後の操作が enable／採取／disable／reboot のどれか、ConfigFlags の後片付けが済んだか、表示が黒／ノイズ／画像のどれかを記録する。共有前に所有者識別情報を取り除き、生ダンプとログはリポジトリに入れない。
 

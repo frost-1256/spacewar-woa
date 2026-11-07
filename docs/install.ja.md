@@ -131,6 +131,24 @@ HKLM\SYSTEM\ControlSet001\Enum\ACPI\VEN_QCOM&DEV_0A36&SUBSYS_IDP07325&REV_0118\0
 
 GPU テストは手動で、できればサインイン画面の静かな時間に短く行い、直後に無効化する。`gpu_now.bat` は有効化して5分間記録するだけで、後片付けしない。`pnputil /enable-device` は ConfigFlags=0 を永続的に残しうる。**有効化のたびに再起動前に再照会し、クラッシュで無効化できなかった場合は次の Windows 起動前にオフライン修復する。**
 
+### 再インストール時に作り直す設定（2026-11-07 の復旧で確認）
+
+前の環境から `dism /Image:<WIN> /Export-Driver` で書き出したドライバを入れ直しても、次の設定は SYSTEM／SOFTWARE ハイブ側にあるため失われる。前の環境のハイブ（ログファイルごと）を保存しておき、該当キーだけを移す。ハイブ全体の差し戻しは、ログ無しのコピーだと読み込めないことがある。
+
+| 項目 | 必要な状態 | 注意 |
+|---|---|---|
+| ブート無効のデバイス | GPU、ADSP（QCOM0A1B）、AMSS（QCOM0A1C）、QSM（QCOM0A1E）、CDSP（QCOM0AB0）の ConfigFlags=1 | 新しいハイブではインスタンスキーが無いので事前に作る。セットアップが 0 で作り直すことがあるため、初回起動後にも再確認する |
+| サービス開始種別 | `qci2c` Start=4、`cnghwassist` Start=4 | ドライバパッケージを入れ直すと `qci2c` が 3 に戻る |
+| QcTrEE パラメータ | 前の環境の `Services\QcTrEE\Parameters`（FSListener=0、QseeLogBuffer=0、SecureServices は必要な3つだけ有効） | INF 既定値（ほぼ全部有効）のまま SCM 系ドライバと組み合わせるとブートが止まった |
+| PILC／WPSS | `Enum\ACPI\QCOM06E0\…` の IMEM／PGCM／PilConfig／SubsystemLoad、`Enum\ACPI\QCOM0AE2\…` の Mappings／Resources／PDInfo／Desktop | Wi-Fi の鎖に必要。手作業で入れた値はドライバ再導入で戻らない |
+| Wi-Fi のファームウェア版ゲート | Net クラス {4D36E972-E325-11CE-BFC1-08002BE10318} の WCN6750 サブキーの fwVersion=00816 | INF の `WlanFWVer` が 00228 のままなら、クラスキー側で上書きする |
+| 電源設定 | 画面の自動オフなし、スリープなし、電源ボタン／スリープボタン／カバーの動作＝何もしない（使用中の電源プラン） | `Control\Power\User\PowerSchemes` は SYSTEM 専用。SYSTEM 権限で取り込む |
+| Sleep Study | `Control\Power\SleepStudyDisabled`=1 | 画面オン時に `nt!PopPluginQuerySocSubsystemBlockingTime` で 0xA0（0x605）になる事象への対策 |
+| テスト署名 | 自分のテスト ID の公開証明書を、SOFTWARE ハイブの ROOT と TrustedPublisher に | — |
+| ローカルアカウント | 無人インストールで作った場合、ネットワークログオンが「パスワード期限切れ」（4625、SubStatus 0xC0000071）で拒否されることがある | 電話側で無期限化と「次回変更」解除を行う |
+
+DSDT 側では、WPSS が SSDD に依存する（`_DEP`）ビルドを使う。依存が無いと起動時に qcsubsys の 0x0A が出る（[既知の問題](known-issues.ja.md) §3）。
+
 ## 7. 初回起動の確認項目
 
 - カーネルデバッグがオフの状態でログオンまで到達し、サインインできる。PIN を設定すると後の実験用にサインイン画面で止めやすい。

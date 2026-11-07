@@ -3,7 +3,7 @@ English | [日本語](known-issues.ja.md)
 
 # Known issues, crash mechanisms and recovery
 
-Applies to the **2026-11-05** spacewar / Windows 11 22H2 baseline. The platform **0x101** freeze and the ADSP **0x0A** start-order crash are distinct defects. A display showing noise, a driver failing start and a system becoming unresponsive are also distinct observations; record which happened.
+Applies to the **2026-11-07** spacewar / Windows 11 22H2 baseline. The platform **0x101** freeze and the ADSP **0x0A** start-order crash are distinct defects. A display showing noise, a driver failing start and a system becoming unresponsive are also distinct observations; record which happened.
 
 ## 1. BugCheck 0x101: mutual processor rendezvous
 
@@ -73,11 +73,27 @@ Waiting on an uninitialized dispatcher object can dereference NULL internal wait
 
 The pack contains `qcadsp7325.mbn`; the Audio extension installs it in its own DriverStore directory and supplies `ADSP\ImagePath`. A genuinely missing image has a checked loader-failure path, not this uninitialized QMI mutex. WPSS working for Wi-Fi does not prove every ADSP path is ready: ADSP declares audio/sensor protection domains and extra service-registry/QMI activity; the reviewed WPSS setup has zero protection domains. The precise higher caller on the original crash stack was not recovered, so that divergence is a supported explanation rather than a reconstructed full stack.
 
+**PROVEN, 2026-11-07: the same race also hits WPSS, and an ACPI dependency fixes it.** On a fresh install with the RPEN/GLNK/SSDD chain present, boot intermittently bugchecked 0x0A (Arg1=0, Arg2=2) at the **same qcsubsys call site 0x4B214** waiting on image+0x76568; a dedicated-dump capture (section 4) showed the WDF work-item stack through the `INITIALIZE_QMI_SERVICES` state handler for WPSS (QCOM0AE2). The DSDT gave WPSS no `_DEP` on SSDD, so WPSS could enter QMI initialization before SSDD registered and initialized the mutex. Adding `Name (_DEP, Package (One) { \_SB.SSDD })` to `Device (WPSS)` removed the crash over repeated boots with Wi-Fi, touch and Bluetooth working. Without the RPEN driver (`qcrpen`, QCOM06E1) the crash does not appear, but GLNK (whose `_DEP` is IPCC and RPEN) never enumerates, SSDD stays absent and the Wi-Fi adapter never appears; removing RPEN from GLNK's `_DEP` let SSDD start but still produced no adapter (**EXCLUDED** as a substitute).
+
+**OPEN:** whether the same `_DEP` on SSDD lets ADSP start safely during boot. Keep ADSP boot-disabled until tested.
+
 Runtime ADSP start does **not** establish battery reporting, internal audio or sensors. The PMIC/battery chain formed at boot without ADSP, all its devices start, yet `Win32_Battery` remains empty; those chain devices rejected runtime stop/restart. Whether early, correctly ordered ADSP changes that result is untested. See [subsystem notes](subsystems.md).
 
 ## 4. Dumps and evidence preservation
 
 A watchdog or hard freeze may return the phone to Android without a normal bugcheck dump. A subsequent boot intended to write a dump can also freeze. The v3.8 capture session and its later write-out attempt produced no fresh dump; an older ADSP 0x0A dump remained. Always inspect dump timestamps and correlate them to the actual session before attributing its crash code.
+
+**Early-boot crashes and dedicated dump files (PROVEN, 2026-11-07).** A bugcheck early in boot, before the paging file is usable, leaves no dump with the default configuration, and the kernel debugger may not attach in time. Configuring a dedicated dump file in the offline SYSTEM hive captured such a crash:
+
+```text
+HKLM\SYSTEM\ControlSet001\Control\CrashControl
+  DedicatedDumpFile    (REG_SZ)    = C:\DedicatedDump.sys
+  DumpFileSize         (REG_DWORD) = 1024          ; MB
+  CrashDumpEnabled     (REG_DWORD) = 2             ; kernel dump
+  AlwaysKeepMemoryDump (REG_DWORD) = 1
+```
+
+After the crash, read the file offline from gadget mode; it begins with `PAGEDU64` and opens directly in the debugger. The file is owned by SYSTEM, so copy it with a SYSTEM-context task.
 
 Preserve available probe output and logs before another capture overwrites them. DscProbe flushes stages to improve survivability, but an in-progress report can be partial and a completed file can predate the latest boot. Record whether the last action was enable, capture, disable or reboot, whether ConfigFlags cleanup occurred, and whether output showed black, noise or an image. Strip owner identifiers from any shared report; raw dumps and logs are not repository content.
 

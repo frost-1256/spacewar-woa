@@ -131,6 +131,24 @@ When editing offline, load the phone SYSTEM hive, inspect `Select\Current`/`Defa
 
 GPU tests are manual, preferably during a quiet sign-in-screen window, brief, and followed immediately by disable. `gpu_now.bat` only enables and logs for five minutes; it has no cleanup. `pnputil /enable-device` can persistently set ConfigFlags=0. **After every enable, query again before reboot; if a crash prevented disable, repair offline before another Windows boot.**
 
+### Settings to recreate after a reinstall (confirmed during the 2026-11-07 recovery)
+
+Re-adding drivers exported with `dism /Image:<WIN> /Export-Driver` does not restore the following, because they live in the SYSTEM/SOFTWARE hives. Keep the previous hives (with their log files) and port only these keys; restoring a whole hive copied without its logs can fail to load.
+
+| Item | Required state | Notes |
+|---|---|---|
+| Boot-disabled devices | ConfigFlags=1 on GPU, ADSP (QCOM0A1B), AMSS (QCOM0A1C), QSM (QCOM0A1E), CDSP (QCOM0AB0) | A fresh hive has no instance keys; create them beforehand. Setup can recreate them with 0, so re-check after first boot |
+| Service start types | `qci2c` Start=4, `cnghwassist` Start=4 | Re-adding the driver package resets `qci2c` to 3 |
+| QcTrEE parameters | The previous `Services\QcTrEE\Parameters` (FSListener=0, QseeLogBuffer=0, only the three required SecureServices enabled) | The INF defaults (almost everything enabled) combined with the SCM-side drivers stopped the boot |
+| PILC / WPSS | IMEM / PGCM / PilConfig / SubsystemLoad under `Enum\ACPI\QCOM06E0\…`; Mappings / Resources / PDInfo / Desktop under `Enum\ACPI\QCOM0AE2\…` | Needed for the Wi-Fi chain; hand-added values do not come back with the drivers |
+| Wi-Fi firmware version gate | fwVersion=00816 on the WCN6750 subkey of the Net class {4D36E972-E325-11CE-BFC1-08002BE10318} | If the INF `WlanFWVer` is still 00228, override it in the class key |
+| Power settings | No automatic display-off, no sleep, power/sleep button and lid actions = do nothing (active power plan) | `Control\Power\User\PowerSchemes` is SYSTEM-only; import with SYSTEM rights |
+| Sleep Study | `Control\Power\SleepStudyDisabled`=1 | Avoids a 0xA0 (0x605) in `nt!PopPluginQuerySocSubsystemBlockingTime` on display power-on |
+| Test signing | Public certificate of your test identity in ROOT and TrustedPublisher of the SOFTWARE hive | — |
+| Local account | An account created by unattended setup may be refused network logon as "password expired" (4625, SubStatus 0xC0000071) | Set it to never expire and clear "must change at next logon" on the phone |
+
+On the DSDT side, use a build in which WPSS depends (`_DEP`) on SSDD. Without it, qcsubsys can bugcheck 0x0A at boot ([known issues](known-issues.md) §3).
+
 ## 7. First-boot acceptance checklist
 
 - Reaches logon and permits sign-in with kernel debugging off; a PIN can keep a deliberate sign-in window available for later tests.
